@@ -10,10 +10,11 @@ import re
 import numpy as np
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.corpus import stopwords
-from pywsd.utils import lemmatize_sentence
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
+#from pywsd.utils import lemmatize_sentence
+
 
 def to_tf(docs, save_path, is_normalize=True):
     """
@@ -31,12 +32,13 @@ def to_tf(docs, save_path, is_normalize=True):
     if is_normalize:
         arr = normalize(arr, axis=1)
     print("tf word dim: ", len(words))
-    np.save(save_path, arr)
-    print("Save tf arr to {}".format(save_path))
+    save_arr = np.array([arr, words], dtype=object)
+    np.save(save_path, save_arr)
+    print("Save tf arr/words to {}".format(save_path))
     return arr, words
 
 
-def to_tfidf(docs, save_path, normalize='l2'):
+def to_tfidf(docs, save_path, idf_save_path, normalize='l2'):
     """
     :param doc: document to bag of tfidfs
     :param normalize: normalize mode
@@ -46,12 +48,17 @@ def to_tfidf(docs, save_path, normalize='l2'):
     """
 
     tfidf = TfidfVectorizer(norm=normalize)
-    cv_fit = tfidf.fit_transform(docs)
+    tfidf_fit = tfidf.fit_transform(docs)
     words = tfidf.get_feature_names()
+    idf_arr = tfidf.idf_
     print("tfidf word dim: ", len(words))
-    arr = cv_fit.toarray()
-    np.save(save_path, arr)
-    print("Save tfidf arr to {}".format(save_path))
+    arr = tfidf_fit.toarray()
+    save_arr = np.array([arr, words], dtype=object)
+    np.save(save_path, save_arr)
+    np.save(idf_save_path, idf_arr)
+    print("Save tfidf arr/words to {}".format(save_path))
+    print("Save idf to {}".format(idf_save_path))
+
     return arr, words
 
 def extract_word(doc):
@@ -121,11 +128,12 @@ def main2():
     ted_csv = os.path.join(top_dir, 'data', 'TED', 'ted_clean.csv')
     tf_arr_path = os.path.join(top_dir, 'data', 'TED', 'tf.npy')
     tfidf_arr_path = os.path.join(top_dir, 'data', 'TED', 'tfidf.npy')
+    idf_save_path = os.path.join(top_dir, 'data', 'TED', 'idf.npy')
 
     df = pd.read_csv(ted_csv, encoding='utf-8')
     docs = df['transcript'].values
-    to_tf(docs, tf_arr_path)
-    to_tfidf(docs, tfidf_arr_path)
+    to_tf(docs, tf_arr_path, is_normalize=False)
+    to_tfidf(docs, tfidf_arr_path, idf_save_path)
 
 
 if __name__ == '__main__':
