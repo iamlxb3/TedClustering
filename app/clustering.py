@@ -1,17 +1,23 @@
 import sys
 import os
-import re
-import ipdb
 import pandas as pd
 import argparse
 import numpy as np
-import collections
 import shutil
-from sklearn.cluster import KMeans
-from sklearn import metrics
 
 sys.path.append('..')
-from funcs.wordcloud import wordcloud_generate
+from funcs.clusters import clusters
+from funcs.helpers import clustering_eval
+from funcs.helpers import metric_record
+from funcs.helpers import wordcloud_analysis
+
+"""
+python clustering.py --clear -f tf -c KMeans
+python clustering.py --clear -f tf -c MiniBatchKMeans
+python clustering.py --clear -f tf -c Spectral
+python clustering.py --clear -f tf -c Agglomerative --linkage ward
+python clustering.py --clear -f tf -c DBSCAN --eps 0.5 --min_samples 5
+"""
 
 
 def args_parse():
@@ -19,86 +25,39 @@ def args_parse():
     parser.add_argument('--clear', dest='clear', help='flag to clear the previous output',
                         default=False, action='store_true')
     parser.add_argument('-f', '--feature', dest='feature', help='valid features for clustering: tf, tfidf',
-                        required=True, type=str, metavar='tf/tfidf')
-    parser.add_argument('-c', '--cluster', dest='cluster', help='valid clusters for clustering: kmeans',
-                        required=True, type=str, metavar='kmeans')
+                        required=True, type=str, choices=('tf, tfidf'))
+    parser.add_argument('-c', '--cluster', dest='cluster', help='type valid clusters for clustering',
+                        required=True, type=str, choices=('KMeans',
+                                                          'MiniBatchKMeans',
+                                                          'Spectral',
+                                                          'Agglomerative',
+                                                          'DBSCAN'
+                                                          ))
+    parser.add_argument('--linkage', dest='linkage', help='linkage for agglomerative clustering',
+                        type=str, choices=('ward', 'complete', 'average'))
+    parser.add_argument('--eps', dest='eps', help='eps for DBSCAN',
+                        type=float)
+    parser.add_argument('--min_samples', dest='min_samples', help='eps for DBSCAN',
+                        type=int)
 
     args = parser.parse_args()
+
+    if args.cluster == 'Agglomerative' and not args.linkage:
+        parser.error('Agglomerative requires linkage')
+
+    if args.cluster == 'DBSCAN' and not args.eps:
+        parser.error('DBSCAN requires eps')
+
+    if args.cluster == 'DBSCAN' and not args.min_samples:
+        parser.error('DBSCAN requires min_samples')
+
     cluster = args.cluster
     feature = args.feature
     clear = args.clear
-    return feature, cluster, clear
-
-
-def k_means(arr, n_clusters):
-    model = KMeans(n_clusters=n_clusters, random_state=0, max_iter=10)
-    result = model.fit(arr)
-    labels = result.labels_
-    print("K_means clustering done!")
-    return labels
-
-
-def results_analysis(tf_matrix, idf_arr, indexes, words, ted_df):
-    """
-    Analysis clustering results
-    :return:
-    """
-    # get the words for each cluster
-    tfidfs = tf_matrix[indexes]
-    tfidfs = np.sum(tfidfs, axis=0)
-    assert tfidfs.ndim == 1
-    assert idf_arr.ndim == 1
-    tfidfs = tfidfs * idf_arr
-    word_tfidf = zip(words, tfidfs)
-    word_tfidf = [(word, tfidf) for word, tfidf in word_tfidf if tfidf > 0]
-    word_tfidf = dict(word_tfidf)
-    #
-
-    # get the meta info
-    ted_df = ted_df[ted_df['id'].isin(indexes)]
-    meta_dict = {}
-    views = sum(ted_df['views'].values)
-    title = tuple(ted_df['title'].values)
-    published_date = tuple(ted_df['published_date'].values)
-    main_speaker = tuple(ted_df['main_speaker'].values)
-    speaker_occupation = tuple(ted_df['speaker_occupation'].values)
-    event = ted_df['event'].values
-    tags = ted_df['tags'].values
-    tags = [word for tag in tags for word in re.findall(r'\w+', tag)]
-    ratings = ted_df['ratings'].values
-    ratings_dict = collections.defaultdict(lambda: 0)
-    for rating in ratings:
-        rating = eval(rating)
-        for dict_ in rating:
-            ratings_dict[dict_['name']] += dict_['count']
-    ratings = tuple(ratings_dict.items())
-    meta_dict['ratings'] = ratings
-    meta_dict['tags'] = tags
-    meta_dict['event'] = event
-    meta_dict['speaker_occupation'] = speaker_occupation
-    meta_dict['main_speaker'] = main_speaker
-    meta_dict['published_date'] = published_date
-    meta_dict['title'] = title
-    meta_dict['views'] = views
-
-    return word_tfidf, meta_dict
-
-
-def clustering_eval(labels, X, mode='sil'):
-    """
-    :param mode:
-           sil: Silhouette Coefficient
-           cal: Calinski-Harabaz
-    :param labels: clustering labels
-    :param X: M x N Document-feature maxtrix
-    :return:
-    """
-    if mode == 'sil':
-        value = metrics.silhouette_score(X, labels, metric='euclidean')
-        print("Silhouette Coefficient: ", value)
-    elif mode == 'cal':
-        value = metrics.calinski_harabaz_score(X, labels)
-        print("Calinski-Harabaz: ", value)
+    linkage = args.linkage
+    eps = args.eps
+    min_samples = args.min_samples
+    return feature, cluster, clear, linkage, eps, min_samples
 
 
 def main():
@@ -107,9 +66,10 @@ def main():
     data_dir = os.path.join(top_dir, 'data', 'TED')
     ted_path = os.path.join(data_dir, 'ted.csv')
     output_dir = os.path.join(top_dir, 'output')
+    results_csv_path = os.path.join(top_dir, 'output', 'metrics.csv')
 
     # argument parse
-    feature, cluster, clear = args_parse()
+    feature, cluster, clear, linkage, eps, min_samples = args_parse()
 
     # clear the output
     if clear:
@@ -135,31 +95,27 @@ def main():
     print("Load document-feature matrix done! Shape: {}, feature: {}".format(matrix.shape, feature))
 
     # do clustering
-    clustering = {'kmeans': k_means}
     n_clusters = 4
     X = matrix[0:20]  # TODO
-    labels = clustering[cluster](X, n_clusters)
+    #
+    parameter_dict = {
+        'KMeans': (X, n_clusters),
+        'MiniBatchKMeans': (X, n_clusters),
+        'Spectral': (X, n_clusters),
+        'Agglomerative': (X, n_clusters, linkage),
+        'DBSCAN': (X, n_clusters, eps, min_samples),
+    }
+    labels = clusters[cluster](*parameter_dict[cluster])
 
     # intrinsic evaluation
-    clustering_eval(labels, X, mode='sil')
-    clustering_eval(labels, X, mode='cal')
+    sil_val = clustering_eval(labels, X, mode='sil')
+    cal_val = clustering_eval(labels, X, mode='cal')
 
-    # analysis results
-    labels_dict = collections.Counter(labels)
-    print(labels_dict)
-    for key in labels_dict.keys():
-        indexes = np.where(labels == key)[0]
-        word_tfidf, meta_dict = results_analysis(tf_matrix, idf_arr, indexes, words, ted_df)
+    # record metric
+    metric_record(results_csv_path, cluster, sil_val, cal_val, n_clusters=n_clusters)
 
-        # makedir for one key
-        save_dir = os.path.join(output_dir, "{}_cluster_{}".format(cluster, key))
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
-            print("Make new dir {}".format(save_dir))
-        save_path = os.path.join(save_dir, "transcript_wordcloud.png")
-
-        wordcloud_generate(word_tfidf, save_path=save_path, is_show=True)
-        break
+    # analysis word distribution and word cloud
+    wordcloud_analysis(cluster, output_dir, labels, tf_matrix, idf_arr, words, ted_df)
 
 
 if __name__ == '__main__':
