@@ -73,18 +73,43 @@ def clustering_eval(labels, X, mode='sil'):
 
     return value
 
-def metric_record(results_csv_path, cluster, sil_val, cal_val, n_clusters=None):
+def metric_record(results_csv_path, cluster, sil_val, cal_val,
+                  eps=None,
+                  n_clusters=None,
+                  linkage=None,
+                  min_samples=None,
+                  feature=None,
+                  preprocess=None):
     """
     Record the intrinsic metric
     :return:
     """
-    results_df = {'cluster': [], 'n_clusters': [], 'silhouette_coefficient': [], 'calinski_harabaz': []}
+
+    valid_metrics = ('cluster', 'n_clusters', 'silhouette_coefficient', 'calinski_harabaz', 'eps',
+                     'min_samples', 'linkage','feature','preprocess')
+    results_df = {}
+    for metric in valid_metrics:
+        results_df[metric] = []
+
     results_df['cluster'].append(cluster)
     results_df['n_clusters'].append(n_clusters)
     results_df['silhouette_coefficient'].append(sil_val)
     results_df['calinski_harabaz'].append(cal_val)
+    results_df['eps'].append(eps)
+    results_df['min_samples'].append(min_samples)
+    results_df['linkage'].append(linkage)
+    results_df['feature'].append(feature)
+    results_df['preprocess'].append(preprocess)
+
     results_df = pd.DataFrame(results_df)
-    results_df = results_df[['cluster', 'n_clusters', 'silhouette_coefficient', 'calinski_harabaz']]
+    results_df = results_df[list(valid_metrics)]
+
+    if os.path.isfile(results_csv_path):
+        old_df = pd.read_csv(results_csv_path)
+        print("Read existing csv from {}".format(results_csv_path))
+        results_df = pd.concat([results_df, old_df], axis=0)
+        results_df = results_df.drop_duplicates(keep='first')
+
     results_df.to_csv(results_csv_path, index=False)
     print("Record metric to {}".format(results_csv_path))
     return results_df
