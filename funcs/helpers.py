@@ -4,7 +4,13 @@ import numpy as np
 import collections
 import pandas as pd
 import os
-from .wordcloud import wordcloud_generate
+import math
+import ipdb
+import matplotlib.pyplot as plt
+from scipy import stats
+from sklearn.manifold import TSNE
+from funcs.wordcloud import wordcloud_generate
+
 
 def results_analysis(tf_matrix, idf_arr, indexes, words, ted_df):
     """
@@ -52,7 +58,7 @@ def results_analysis(tf_matrix, idf_arr, indexes, words, ted_df):
     return word_tfidf, meta_dict
 
 
-def clustering_eval(labels, X, mode='sil'):
+def clustering_in_eval(labels, X, mode='sil'):
     """
     :param mode:
            sil: Silhouette Coefficient
@@ -73,20 +79,23 @@ def clustering_eval(labels, X, mode='sil'):
 
     return value
 
+
 def metric_record(results_csv_path, cluster, sil_val, cal_val,
                   eps=None,
                   n_clusters=None,
                   linkage=None,
                   min_samples=None,
                   feature=None,
-                  preprocess=None):
+                  preprocess=None,
+                  lsa_n=None,
+                  entropy=None):
     """
     Record the intrinsic metric
     :return:
     """
 
     valid_metrics = ('cluster', 'n_clusters', 'silhouette_coefficient', 'calinski_harabaz', 'eps',
-                     'min_samples', 'linkage','feature','preprocess')
+                     'min_samples', 'linkage', 'feature', 'preprocess', 'lsa_n','entropy')
     results_df = {}
     for metric in valid_metrics:
         results_df[metric] = []
@@ -100,6 +109,8 @@ def metric_record(results_csv_path, cluster, sil_val, cal_val,
     results_df['linkage'].append(linkage)
     results_df['feature'].append(feature)
     results_df['preprocess'].append(preprocess)
+    results_df['lsa_n'].append(lsa_n)
+    results_df['entropy'].append(entropy)
 
     results_df = pd.DataFrame(results_df)
     results_df = results_df[list(valid_metrics)]
@@ -113,6 +124,7 @@ def metric_record(results_csv_path, cluster, sil_val, cal_val,
     results_df.to_csv(results_csv_path, index=False)
     print("Record metric to {}".format(results_csv_path))
     return results_df
+
 
 def wordcloud_analysis(cluster, output_dir, labels, tf_matrix, idf_arr, words, ted_df):
     labels_dict = collections.Counter(labels)
@@ -130,3 +142,83 @@ def wordcloud_analysis(cluster, output_dir, labels, tf_matrix, idf_arr, words, t
 
         wordcloud_generate(word_tfidf, save_path=save_path, is_show=True)
         break
+
+
+def tsne_plot(labels, fit_X, save_path=None):
+    labels_colours = np.unique(labels)
+    labels_colours = {label: np.random.rand() for label in labels_colours}
+
+    X_embedded = TSNE(n_components=2).fit_transform(fit_X)
+    print("TSNE done! X_embedded shape: {}".format(X_embedded.shape))
+
+    fig, ax = plt.subplots()
+    label_dict = {key: [] for key, _ in labels_colours.items()}
+    for i, coord in enumerate(X_embedded):
+        label = labels[i]
+        x, y = coord
+        label_dict[label].append((x, y))
+
+    for label, xys in label_dict.items():
+        x, y = zip(*xys)
+        ax.scatter(list(x), list(y), label=label,
+                   alpha=0.3, edgecolors='none')
+
+    ax.legend()
+    # ax.grid(True)
+    if save_path:
+        plt.savefig(save_path)
+        print('Save tsne plot to {}'.format(save_path))
+    plt.show()
+
+
+def out_eval_prep(ted_df, labels):
+    """
+    Prep for the extrinsic evaluation
+    :return: [('1', 110, {'A':100, 'B':20, 'C':30}), ('2', 28, {'A':25, 'B':5})]
+    """
+    label_tag_dict = collections.defaultdict(lambda: [])
+    label_counter = collections.Counter(labels)
+    for i, label in enumerate(labels):
+        tags = eval(ted_df.loc[i, 'tags'])
+        label_tag_dict[label].extend(tags)
+
+    label_tuples = []
+    for label, tags in label_tag_dict.items():
+        label_tuple = []
+        label_tuple.append(label)
+        label_tuple.append(label_counter[label])
+        label_tuple.append(collections.Counter(tags))
+        label_tuples.append(tuple(label_tuple))
+    return label_tuples
+
+
+def tag2prob(tag_dict):
+    total = sum(tag_dict.values())
+    prob_list = []
+    for key, value in tag_dict.items():
+        prob_list.append(value / float(total))
+    return prob_list
+
+
+def entropy_calcualte(p_list):
+    assert math.isclose(sum(p_list), 1)
+    entropy = stats.entropy(p_list)
+    return entropy
+
+
+def clustering_out_eval(inputs):
+    """
+    :param inputs: [('1', 110, {'A':100, 'B':20, 'C':30}), ('2', 28, {'A':25, 'B':5})]
+    :return:
+    """
+    total_N = sum([x[1] for x in inputs])
+    n_entropys = []
+    for input in inputs:
+        label, N, tag_dict = input
+        tag_probs = tag2prob(tag_dict)
+        entropy = entropy_calcualte(tag_probs)
+        n_entropy = (N / float(total_N)) * entropy
+        n_entropys.append(n_entropy)
+    sum_entropy = sum(n_entropys)
+    print("sum_entropy: ", sum_entropy)
+    return sum_entropy
