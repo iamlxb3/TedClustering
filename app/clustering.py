@@ -17,7 +17,6 @@ from funcs.helpers import clustering_out_eval
 from funcs.helpers import out_eval_prep
 from sklearn.decomposition import TruncatedSVD
 
-
 """
 python clustering.py --clear -f tf -c KMeans
 python clustering.py --clear -f tf -c MiniBatchKMeans --n_cluster 5 --preprocess lsa --lsa_n 100 --tsne
@@ -66,6 +65,9 @@ def args_parse():
     if args.cluster == 'DBSCAN' and not args.eps:
         parser.error('DBSCAN requires eps')
 
+    if args.cluster == 'DBSCAN' and args.n_cluster:
+        parser.error('DBSCAN should not set n_cluster!')
+
     if args.cluster == 'DBSCAN' and not args.min_samples:
         parser.error('DBSCAN requires min_samples')
 
@@ -89,7 +91,6 @@ def args_parse():
     lsa_n = args.lsa_n
     preprocess = args.preprocess
     tsne = args.tsne
-
 
     return feature, cluster, clear, linkage, eps, min_samples, is_wordcloud, n_cluster, lsa_n, preprocess, tsne
 
@@ -130,8 +131,8 @@ def main():
     print("Load document-feature matrix done! Shape: {}, feature: {}".format(matrix.shape, feature))
 
     # do clustering
-    #X = matrix[0:20]  # TODO
-    #fit_X = matrix  # TODO
+    # X = matrix[0:20]  # TODO
+    # fit_X = matrix  # TODO
     fit_X = matrix[0:20]  # TODO
 
     #
@@ -139,9 +140,9 @@ def main():
     # pre process data & feature
     if preprocess == 'lsa':
         lsa = TruncatedSVD(n_components=lsa_n)
-        if lsa_n > min(fit_X.shape):
-            print("Warning, lsa n component won't be greated than max rank!") # TODO, maybe?
-        fit_X = lsa.fit_transform(fit_X)
+        if lsa_n > min(matrix.shape):
+            print("Warning, lsa n component won't be greated than max rank!")  # TODO, maybe?
+        fit_X = lsa.fit_transform(matrix)
         print("Lsa done! Shape: {}".format(fit_X.shape))
     #
 
@@ -153,6 +154,8 @@ def main():
         'DBSCAN': (fit_X, n_clusters, eps, min_samples),
     }
     labels = clusters[cluster](*parameter_dict[cluster])
+    if cluster == 'DBSCAN':
+        n_clusters = len([x for x in collections.Counter(labels).keys() if x != -1])
 
     # intrinsic evaluation
     sil_val = clustering_in_eval(labels, fit_X, mode='sil')
