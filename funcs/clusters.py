@@ -6,7 +6,7 @@ from sklearn.cluster import DBSCAN
 
 
 def k_means(arr, n_clusters):
-    model = KMeans(n_clusters=n_clusters, random_state=0, max_iter=10)
+    model = KMeans(n_clusters=n_clusters, random_state=0, max_iter=100, n_init=20)
     result = model.fit(arr)
     labels = result.labels_
     print("K_means clustering done!")
@@ -14,7 +14,7 @@ def k_means(arr, n_clusters):
 
 
 def minibatch_kmeans(arr, n_clusters):
-    model = MiniBatchKMeans(n_clusters=n_clusters, random_state=0, max_iter=10)
+    model = MiniBatchKMeans(n_clusters=n_clusters, random_state=0, max_iter=100, n_init=20)
     result = model.fit(arr)
     labels = result.labels_
     print("MiniBatchKMeans clustering done!")
@@ -42,7 +42,7 @@ def agglomerative(arr, n_clusters, linkage='ward'):
 
 
 def dbscan(arr, n_clusters, eps=0.5, min_samples=5):
-    model = DBSCAN(eps=eps, min_samples=min_samples)
+    model = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
     result = model.fit(arr)
     labels = result.labels_
     core_sample_indices = result.core_sample_indices_

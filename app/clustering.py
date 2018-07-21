@@ -16,12 +16,16 @@ from funcs.helpers import tsne_plot
 from funcs.helpers import clustering_out_eval
 from funcs.helpers import out_eval_prep
 from sklearn.decomposition import TruncatedSVD
+from scipy.spatial import distance_matrix
 
 """
-python clustering.py --clear -f tf -c KMeans
-python clustering.py --clear -f tf -c MiniBatchKMeans --n_cluster 5 --preprocess lsa --lsa_n 100 --tsne
+python clustering.py -f tfidf -c KMeans --n_cluster 10
+python clustering.py -f tf -c MiniBatchKMeans --n_cluster 5 --preprocess lsa --lsa_n 100 --tsne
 python clustering.py --clear -f tf -c Spectral
-python clustering.py --clear -f tf -c Agglomerative --linkage ward
+python clustering.py -f tfidf -c Agglomerative --linkage ward --n_cluster 10
+python clustering.py -f tfidf -c Agglomerative --linkage complete --n_cluster 10
+python clustering.py -f tfidf -c Agglomerative --linkage average --n_cluster 10
+
 python clustering.py --clear -f tf -c DBSCAN --eps 0.5 --min_samples 5
 """
 
@@ -33,7 +37,7 @@ def args_parse():
     parser.add_argument('--cloud', dest='is_wordcloud', help='whether to generate wordcloud',
                         default=False, action='store_true')
     parser.add_argument('-f', '--feature', dest='feature', help='valid features for clustering: tf, tfidf',
-                        required=True, type=str, choices=('tf, tfidf'))
+                        required=True, type=str, choices=('tf', 'tfidf'))
     parser.add_argument('-c', '--cluster', dest='cluster', help='type valid clusters for clustering',
                         required=True, type=str, choices=('KMeans',
                                                           'MiniBatchKMeans',
@@ -54,9 +58,11 @@ def args_parse():
     parser.add_argument('--preprocess', dest='preprocess', help='data_preprocess',
                         type=str, choices=('lsa',))
     parser.add_argument('--tsne', dest='tsne', help='tsne', default=False, action='store_true')
-    args = parser.parse_args()
+    parser.add_argument('--debug', action='store_true', help='debug_mode', default=False)
 
-    if args.cluster == 'KMeans' or args.cluster == 'MiniBatchKMeans' and not args.n_cluster:
+    args = parser.parse_args()
+    if (args.cluster == 'KMeans' or args.cluster == 'MiniBatchKMeans' or args.cluster == 'Agglomerative')\
+            and (not args.n_cluster):
         parser.error('KMeans and MiniBatchKMeans require n_cluster')
 
     if args.cluster == 'Agglomerative' and not args.linkage:
@@ -91,8 +97,9 @@ def args_parse():
     lsa_n = args.lsa_n
     preprocess = args.preprocess
     tsne = args.tsne
+    debug = args.debug
 
-    return feature, cluster, clear, linkage, eps, min_samples, is_wordcloud, n_cluster, lsa_n, preprocess, tsne
+    return feature, cluster, clear, linkage, eps, min_samples, is_wordcloud, n_cluster, lsa_n, preprocess, tsne, debug
 
 
 def main():
@@ -104,7 +111,8 @@ def main():
     results_csv_path = os.path.join(top_dir, 'output', 'metrics.csv')
 
     # argument parse
-    feature, cluster, clear, linkage, eps, min_samples, is_wordcloud, n_clusters, lsa_n, preprocess, tsne = args_parse()
+    feature, cluster, clear, linkage, eps, min_samples,\
+    is_wordcloud, n_clusters, lsa_n, preprocess, tsne, debug = args_parse()
 
     # clear the output
     if clear:
@@ -133,8 +141,11 @@ def main():
     # do clustering
     # X = matrix[0:20]  # TODO
     # fit_X = matrix  # TODO
-    fit_X = matrix[0:20]  # TODO
-
+    if debug:
+        fit_X = matrix[0:20]  # TODO
+        print("Debug mode! Data has been reduced!")
+    else:
+        fit_X = matrix
     #
 
     # pre process data & feature
@@ -145,6 +156,11 @@ def main():
         fit_X = lsa.fit_transform(matrix)
         print("Lsa done! Shape: {}".format(fit_X.shape))
     #
+
+    # compute distance metrics
+    if cluster == 'DBSCAN':
+        fit_X = distance_matrix(fit_X, fit_X)
+        print("Distance metrics calculated!")
 
     parameter_dict = {
         'KMeans': (fit_X, n_clusters),

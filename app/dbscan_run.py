@@ -17,6 +17,7 @@ from funcs.helpers import clustering_out_eval
 from funcs.helpers import out_eval_prep
 from sklearn.decomposition import TruncatedSVD
 from tqdm import tqdm
+from scipy.spatial import distance_matrix
 
 """
 python minikmeans_run.py
@@ -39,52 +40,57 @@ def main():
     preprocess = None
     lsa_n = None
     n_clusters = None
-    eps_list = np.linspace(1, 200, 50)
+    eps_list = np.linspace(50, 200, 50)
     min_samples_list = np.linspace(2, 50, 49)
     min_samples_list = [int(x) for x in min_samples_list]
 
     for feature in features:
+        # clear the output
+        if clear:
+            shutil.rmtree(output_dir)
+            os.makedirs(output_dir)
+            print("Remove all content in {}".format(output_dir))
+
+        # load the ted df
+        ted_df = pd.read_csv(ted_path, encoding='utf-8')
+        print("load ted df done!")
+
+        # read the tf matrix, idf arr
+        tf_matrix_path = os.path.join(data_dir, "tf.npy")
+        idf_arr_path = os.path.join(data_dir, "idf.npy")
+        tf_matrix, words = np.load(tf_matrix_path)
+        idf_arr = np.load(idf_arr_path)
+        print("load tf_matrix and idf array done! Tf matrix shape: {}, idf arrar shape: {}"
+              .format(tf_matrix.shape, idf_arr.shape))
+
+        # read M x N feature matrix (M -> number of documents, N -> number of features)
+        matrix_path = os.path.join(data_dir, "{}.npy".format(feature))
+
+        matrix, words = np.load(matrix_path)
+        print("Load document-feature matrix done! Shape: {}, feature: {}".format(matrix.shape, feature))
+
+        # do clustering
+        # X = matrix[0:20]  # TODO
+        fit_X = matrix  # TODO
+
+        #
+        # pre process data & feature
+        if preprocess == 'lsa':
+            lsa = TruncatedSVD(n_components=lsa_n)
+            if lsa_n > min(matrix.shape):
+                print("Warning, lsa n component won't be greated than max rank!")  # TODO, maybe?
+            fit_X = lsa.fit_transform(matrix)
+            print("Lsa done! Shape: {}".format(fit_X.shape))
+            #
+
+        # compute distance metrics
+        if cluster == 'DBSCAN':
+            fit_X = distance_matrix(fit_X, fit_X)
+            print("Distance metrics calculated!")
+        #
+
         for eps in eps_list:
             for min_samples in min_samples_list:
-
-                # clear the output
-                if clear:
-                    shutil.rmtree(output_dir)
-                    os.makedirs(output_dir)
-                    print("Remove all content in {}".format(output_dir))
-
-                # load the ted df
-                ted_df = pd.read_csv(ted_path, encoding='utf-8')
-                print("load ted df done!")
-
-                # read the tf matrix, idf arr
-                tf_matrix_path = os.path.join(data_dir, "tf.npy")
-                idf_arr_path = os.path.join(data_dir, "idf.npy")
-                tf_matrix, words = np.load(tf_matrix_path)
-                idf_arr = np.load(idf_arr_path)
-                print("load tf_matrix and idf array done! Tf matrix shape: {}, idf arrar shape: {}"
-                      .format(tf_matrix.shape, idf_arr.shape))
-
-                # read M x N feature matrix (M -> number of documents, N -> number of features)
-                matrix_path = os.path.join(data_dir, "{}.npy".format(feature))
-
-                matrix, words = np.load(matrix_path)
-                print("Load document-feature matrix done! Shape: {}, feature: {}".format(matrix.shape, feature))
-
-                # do clustering
-                # X = matrix[0:20]  # TODO
-                fit_X = matrix  # TODO
-
-                #
-                # pre process data & feature
-                if preprocess == 'lsa':
-                    lsa = TruncatedSVD(n_components=lsa_n)
-                    if lsa_n > min(matrix.shape):
-                        print("Warning, lsa n component won't be greated than max rank!")  # TODO, maybe?
-                    fit_X = lsa.fit_transform(matrix)
-                    print("Lsa done! Shape: {}".format(fit_X.shape))
-                #
-
                 parameter_dict = {
                     'KMeans': (fit_X, n_clusters),
                     'MiniBatchKMeans': (fit_X, n_clusters),
@@ -94,7 +100,7 @@ def main():
                 }
                 labels = clusters[cluster](*parameter_dict[cluster])
                 if cluster == 'DBSCAN':
-                    n_clusters = len([x for x in collections.Counter(labels).keys() if x != -1])
+                    n_clusters = len([x for x in collections.Counter(labels).keys() if int(x) != -1])
 
                 # intrinsic evaluation
                 sil_val = clustering_in_eval(labels, fit_X, mode='sil')
